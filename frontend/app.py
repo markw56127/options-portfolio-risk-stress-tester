@@ -267,8 +267,14 @@ with tab1:
 # TAB 2 — PORTFOLIO VAR & STRESS TEST
 # ===========================================================================
 with tab2:
+    import math
+    import numpy as np
+
     st.header("Portfolio VaR & Stress Test")
 
+    for _k, _v in [("var2_result", None), ("stress2_result", None), ("var2_portval", 100_000)]:
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
 
     # Settings inline (no sidebar clutter)
     s1, s2, s3 = st.columns(3)
@@ -292,7 +298,9 @@ with tab2:
 
         with vc1:
             st.subheader("Parametric VaR")
-            portfolio_value = st.number_input("Portfolio Value ($)", value=100_000, step=1_000)
+            portfolio_value = st.number_input(
+                "Portfolio Value ($)", value=100_000, step=1_000, key="var2_port_input"
+            )
             if st.button("Calculate VaR"):
                 payload = {
                     "positions": df_port[["ticker", "weight", "sigma_daily"]].to_dict("records"),
@@ -302,18 +310,23 @@ with tab2:
                 }
                 try:
                     resp = requests.post(f"{API}/var/parametric", json=payload, timeout=10)
-                    result = resp.json()
-                    st.metric("VaR ($)", f"${result['var']:,.2f}")
-                    st.metric("Portfolio Daily σ", f"{result['portfolio_sigma']*100:.3f}%")
+                    st.session_state.var2_result = resp.json()
+                    st.session_state.var2_portval = portfolio_value
+                    st.session_state.stress2_result = None  # reset stress on new VaR
                 except Exception as e:
                     st.error(f"API error: {e}")
+
+            if st.session_state.var2_result:
+                _r = st.session_state.var2_result
+                st.metric("VaR ($)", f"${_r['var']:,.2f}")
+                st.metric("Portfolio Daily σ", f"{_r['portfolio_sigma']*100:.3f}%")
 
         with vc2:
             st.subheader("Stress Test")
             if st.button("Run Stress Scenario"):
                 payload = {
                     "positions": df_port[["ticker", "weight", "sigma_daily"]].to_dict("records"),
-                    "portfolio_value": portfolio_value,
+                    "portfolio_value": st.session_state.var2_portval,
                     "confidence": confidence,
                     "horizon_days": horizon,
                 }
@@ -322,12 +335,15 @@ with tab2:
                         f"{API}/stress/scenario", json=payload,
                         params={"shock_pct": shock_pct}, timeout=10,
                     )
-                    r = resp.json()
-                    st.metric("Base VaR ($)", f"${r['base_var']:,.2f}")
-                    st.metric("Stressed VaR ($)", f"${r['stressed_var']:,.2f}",
-                              delta=f"+{r['var_increase_pct']}%")
+                    st.session_state.stress2_result = resp.json()
                 except Exception as e:
                     st.error(f"API error: {e}")
+
+            if st.session_state.stress2_result:
+                _sr = st.session_state.stress2_result
+                st.metric("Base VaR ($)", f"${_sr['base_var']:,.2f}")
+                st.metric("Stressed VaR ($)", f"${_sr['stressed_var']:,.2f}",
+                          delta=f"+{_sr['var_increase_pct']}%")
 
         with vc3:
             st.subheader("Portfolio Weights")
@@ -335,9 +351,102 @@ with tab2:
             st.plotly_chart(fig_pie, use_container_width=True)
 
         st.subheader("Daily Volatility by Position")
-        fig_bar = px.bar(df_port, x="ticker", y="sigma_daily", color="ticker",
-                         labels={"sigma_daily": "Daily σ"})
-        st.plotly_chart(fig_bar, use_container_width=True)
+        fig_sigma = px.bar(df_port, x="ticker", y="sigma_daily", color="ticker",
+                           labels={"sigma_daily": "Daily σ"})
+        st.plotly_chart(fig_sigma, use_container_width=True)
+
+        # -----------------------------------------------------------------------
+        # CHARTS — shown once VaR has been calculated
+        # -----------------------------------------------------------------------
+        if st.session_state.var2_result:
+            _res = st.session_state.var2_result
+            _port_val = st.session_state.var2_portval
+            _port_sigma = _res["portfolio_sigma"]   # daily portfolio σ (fraction)
+            _var_dollar = _res["var"]
+
+            st.divider()
+            dist_col, contrib_col = st.columns(2)
+
+            # --- Return distribution chart ---
+            with dist_col:
+                st.subheader("Return Distribution")
+                _daily_sigma_usd = _port_sigma * _port_val * math.sqrt(horizon)
+                _cutoff = -_var_dollar
+                _x_min, _x_max = -4 * _daily_sigma_usd, 4 * _daily_sigma_usd
+                _xs = np.linspace(_x_min, _x_max, 400)
+                _coeff = 1 / (_daily_sigma_usd * math.sqrt(2 * math.pi))
+                _ys = _coeff * np.exp(-_xs**2 / (2 * _daily_sigma_usd**2))
+
+                _mask_loss = _xs <= _cutoff
+                _mask_gain = _xs >= _cutoff
+
+                fig_dist = go.Figure()
+                fig_dist.add_trace(go.Scatter(
+                    x=np.append(_xs[_mask_loss], _cutoff),
+                    y=np.append(_ys[_mask_loss], float(_coeff * math.exp(-_cutoff**2 / (2 * _daily_sigma_usd**2)))),
+                    fill="tozeroy", fillcolor="rgba(220,50,50,0.35)",
+                    line=dict(color="rgba(200,40,40,0.7)"),
+                    name=f"Loss tail ({(1-confidence)*100:.0f}%)",
+                ))
+                fig_dist.add_trace(go.Scatter(
+                    x=np.append(_cutoff, _xs[_mask_gain]),
+                    y=np.append(float(_coeff * math.exp(-_cutoff**2 / (2 * _daily_sigma_usd**2))), _ys[_mask_gain]),
+                    fill="tozeroy", fillcolor="rgba(50,100,200,0.18)",
+                    line=dict(color="rgba(50,100,200,0.5)"),
+                    name="Expected range",
+                ))
+                fig_dist.add_vline(x=_cutoff, line_dash="dash", line_color="red",
+                                   line_width=2, annotation_text=f"VaR ${_var_dollar:,.0f}",
+                                   annotation_position="top right")
+                if st.session_state.stress2_result:
+                    _sv = st.session_state.stress2_result["stressed_var"]
+                    fig_dist.add_vline(x=-_sv, line_dash="dot", line_color="orange",
+                                       line_width=2, annotation_text=f"Stressed ${_sv:,.0f}",
+                                       annotation_position="top left")
+                fig_dist.update_layout(
+                    xaxis_title=f"{horizon}-day P&L ($)",
+                    yaxis_title="Probability Density",
+                    height=380, margin=dict(t=20, b=40),
+                    legend=dict(x=0.01, y=0.99),
+                )
+                st.plotly_chart(fig_dist, use_container_width=True)
+                st.caption(
+                    f"Red area: worst {(1-confidence)*100:.0f}% of outcomes "
+                    f"(VaR = ${_var_dollar:,.0f} over {horizon} day{'s' if horizon > 1 else ''})."
+                    + (f" Orange dashed line: stressed VaR (${st.session_state.stress2_result['stressed_var']:,.0f})."
+                       if st.session_state.stress2_result else "")
+                )
+
+            # --- VaR contribution by position ---
+            with contrib_col:
+                st.subheader("VaR Contribution by Position")
+                _port_var = sum(
+                    (row["weight"] * row["sigma_daily"]) ** 2
+                    for _, row in df_port.iterrows()
+                )
+                _df_contrib = df_port.copy()
+                _df_contrib["var_contribution"] = _df_contrib.apply(
+                    lambda row: (row["weight"] * row["sigma_daily"]) ** 2 / _port_var * _var_dollar,
+                    axis=1,
+                )
+                _df_contrib["pct"] = (_df_contrib["var_contribution"] / _var_dollar * 100).round(1)
+
+                fig_contrib = px.bar(
+                    _df_contrib, x="ticker", y="var_contribution", color="ticker",
+                    text=_df_contrib["pct"].apply(lambda x: f"{x}%"),
+                    labels={"var_contribution": "VaR Contribution ($)", "ticker": ""},
+                )
+                fig_contrib.update_traces(textposition="outside")
+                fig_contrib.update_layout(
+                    height=380, margin=dict(t=20, b=40),
+                    showlegend=False,
+                    yaxis_title="VaR Contribution ($)",
+                )
+                st.plotly_chart(fig_contrib, use_container_width=True)
+                st.caption(
+                    "Each bar shows how much of the total portfolio VaR is driven by that position "
+                    "(assuming uncorrelated returns)."
+                )
 
     else:
         st.info(
