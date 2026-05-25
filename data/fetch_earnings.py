@@ -51,6 +51,7 @@ def fetch_earnings_history(ticker: str) -> pd.DataFrame:
         latest = ed.index.max() + timedelta(days=3)
         prices = yf.download(ticker, start=earliest, end=latest,
                              auto_adjust=True, progress=False)["Close"]
+        prices = prices.squeeze()  # ensure Series when yfinance returns DataFrame
         prices.index = pd.to_datetime(prices.index).tz_localize(None)
     except Exception as exc:
         log.warning("%s: could not fetch prices for earnings move: %s", ticker, exc)
@@ -72,9 +73,9 @@ def fetch_earnings_history(ticker: str) -> pd.DataFrame:
             future = prices[prices.index > date]
             past = prices[prices.index <= date]
             if not future.empty and not past.empty:
-                next_close = future.iloc[0]
-                prev_close = past.iloc[-1]
-                stock_move = float((next_close - prev_close) / prev_close)
+                next_close = float(future.iloc[0])
+                prev_close = float(past.iloc[-1])
+                stock_move = (next_close - prev_close) / prev_close
 
         rows.append({
             "date": date.date(),
