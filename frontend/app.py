@@ -62,7 +62,17 @@ with tab1:
                 st.session_state.earnings_history = []
             try:
                 r = requests.get(f"{API}/options/chain/{ticker}", timeout=30)
-                st.session_state.options_chain = r.json() if r.ok else None
+                chain_data = r.json() if r.ok else None
+                st.session_state.options_chain = chain_data
+                # Auto-populate BS Pricer inputs with live spot + nearest ATM strike
+                if chain_data:
+                    spot_val = chain_data.get("spot")
+                    if spot_val:
+                        st.session_state["bs_S"] = float(spot_val)
+                        calls = chain_data.get("calls", [])
+                        if calls:
+                            atm = min(calls, key=lambda c: abs(c["strike"] - spot_val))
+                            st.session_state["bs_K"] = float(atm["strike"])
             except Exception:
                 st.session_state.options_chain = None
 
@@ -318,7 +328,8 @@ with tab3:
 
     st.markdown(
         "Compute price, Greeks, probability of profit, theta decay, and payoff diagram "
-        "for any option. Click **Price Option** to update all charts."
+        "for any option. Click **Price Option** to update all charts. "
+        "Spot and strike auto-populate when you load a ticker in the Earnings tab."
     )
 
     bc1, bc2, bc3, bc4, bc5 = st.columns(5)
