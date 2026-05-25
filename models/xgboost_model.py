@@ -25,7 +25,7 @@ def load_data():
     return X, y
 
 
-def train(X: pd.DataFrame, y: pd.Series, params: dict | None = None) -> xgb.XGBRegressor:
+def train(X: pd.DataFrame, y: pd.Series, params=None) -> xgb.XGBRegressor:
     default_params = {
         "n_estimators": 500,
         "max_depth": 6,

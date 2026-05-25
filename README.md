@@ -5,7 +5,7 @@
 A full-stack system for options pricing, earnings impact prediction, and portfolio risk quantification. Collects live market data via Yahoo Finance, trains three complementary pricing models (Black-Scholes, XGBoost, LSTM) plus an earnings impact model, and exposes everything through a FastAPI backend and Streamlit dashboard.
 
 > **Live App:** [Streamlit — TBD after deployment](#)
-> **API Docs:** [Cloud Run — TBD after deployment](#)
+> **API Docs:** https://risk-api-388146732000.us-central1.run.app/docs
 
 ---
 
@@ -139,10 +139,10 @@ TSLA,0.3,0.025
 
 | Service | Platform | URL |
 |---------|----------|-----|
-| Frontend (Streamlit) | Streamlit Community Cloud | TBD |
-| Backend API (FastAPI) | Google Cloud Run | TBD |
+| Frontend (Streamlit) | Streamlit Community Cloud | TBD after Streamlit deployment |
+| Backend API (FastAPI) | Google Cloud Run | https://risk-api-388146732000.us-central1.run.app |
 
-*URLs will be updated after deployment. Both services must be live through June 9, 2026.*
+*Frontend URL will be updated after Streamlit deployment. Both services must be live through June 9, 2026.*
 
 ---
 

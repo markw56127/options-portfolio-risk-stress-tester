@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Secrets / environment
+.env
+.env.*
+secrets.toml
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Office temp files
+~$*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+
+# Presentation / notebooks (not needed in container)
+presentation/
+notebooks/
+proposal_presentation_figs/
+eda_proposal.py
+PRESENTATION_README.md
+
+# Frontend (not needed in backend container)
+frontend/
+
+# NOTE: models/*.json, models/*.pt, data/raw/, data/processed/ are intentionally NOT excluded
+# so trained weights are baked into the Docker image

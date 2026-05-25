@@ -57,7 +57,7 @@ def _typical_iv(ticker: str, default: float = 0.25) -> float:
         if prices.empty:
             return default
         returns = np.log(prices / prices.shift(1)).dropna()
-        return float(returns.std() * np.sqrt(252))
+        return float(returns.std().iloc[0] * np.sqrt(252)) if hasattr(returns.std(), 'iloc') else float(returns.std() * np.sqrt(252))
     except Exception:
         return default
 
