@@ -36,16 +36,21 @@ with tab1:
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # --- Ticker input: chain auto-loads on change ---
-    ticker = st.text_input(
-        "Ticker symbol", value="AAPL",
-        help="Press Enter or Tab to load. Works with any US stock ticker."
-    ).upper().strip()
+    # --- Ticker input with search button ---
+    _col_input, _col_btn = st.columns([8, 1])
+    with _col_input:
+        ticker = st.text_input(
+            "Ticker symbol", value="AAPL",
+            help="Press Enter or click the search button to load."
+        ).upper().strip()
+    with _col_btn:
+        st.markdown('<div style="margin-top:1.75rem"></div>', unsafe_allow_html=True)
+        _search_btn = st.button("→", type="primary", use_container_width=True, help="Search")
 
-    if ticker and ticker != st.session_state.current_ticker:
+    _should_load = _search_btn or (ticker and ticker != st.session_state.current_ticker)
+    if ticker and _should_load:
         st.session_state.current_ticker = ticker
         st.session_state.ph_key = ""
-        # Clear stale earnings if ticker changed
         if ticker != st.session_state.earnings_loaded_for:
             st.session_state.earnings_info = None
             st.session_state.earnings_history = []
