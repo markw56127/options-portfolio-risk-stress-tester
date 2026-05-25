@@ -138,6 +138,7 @@ def get_options_chain(ticker: str, max_strikes: int = 20):
         chain = t.option_chain(exp)
 
         spot_data = yf.download(ticker, period="2d", auto_adjust=True, progress=False)["Close"]
+        spot_data = spot_data.squeeze()
         S = float(spot_data.iloc[-1]) if not spot_data.empty else None
 
         def enrich(df, flag):
