@@ -96,26 +96,47 @@ def fetch_earnings_history(ticker: str) -> pd.DataFrame:
 def get_upcoming_earnings(ticker: str) -> dict:
     """
     Return the next scheduled earnings date and current EPS estimate.
-    Falls back gracefully if unavailable.
+    Tries .calendar first (more reliable), then falls back to earnings_dates.
     """
     t = yf.Ticker(ticker)
-    result = {
-        "ticker": ticker,
-        "upcoming_date": None,
-        "eps_estimate": None,
-    }
+    result = {"ticker": ticker, "upcoming_date": None, "eps_estimate": None}
+
+    # Primary: .calendar returns upcoming date + EPS consensus
     try:
-        ed = t.earnings_dates
-        if ed is not None and not ed.empty:
-            ed.index = pd.to_datetime(ed.index).tz_localize(None)
-            future = ed[ed.index > pd.Timestamp.now()]
-            if not future.empty:
-                next_row = future.sort_index().iloc[0]
-                result["upcoming_date"] = str(next_row.name.date())
-                est = next_row.get("EPS Estimate")
-                result["eps_estimate"] = float(est) if pd.notna(est) else None
+        cal = t.calendar
+        if isinstance(cal, dict) and cal:
+            ed = cal.get("Earnings Date")
+            if ed is not None:
+                ed_ts = pd.Timestamp(ed[0] if isinstance(ed, list) else ed)
+                if ed_ts > pd.Timestamp.now():
+                    result["upcoming_date"] = str(ed_ts.date())
+            eps = cal.get("Earnings Average") or cal.get("EPS Average")
+            if eps is not None:
+                try:
+                    v = float(eps)
+                    if np.isfinite(v):
+                        result["eps_estimate"] = round(v, 2)
+                except (TypeError, ValueError):
+                    pass
     except Exception as exc:
-        log.warning("%s: get_upcoming_earnings failed: %s", ticker, exc)
+        log.warning("%s: calendar lookup failed: %s", ticker, exc)
+
+    # Fallback: earnings_dates
+    if result["upcoming_date"] is None:
+        try:
+            ed = t.earnings_dates
+            if ed is not None and not ed.empty:
+                ed.index = pd.to_datetime(ed.index).tz_localize(None)
+                future = ed[ed.index > pd.Timestamp.now()]
+                if not future.empty:
+                    next_row = future.sort_index().iloc[0]
+                    result["upcoming_date"] = str(next_row.name.date())
+                    if result["eps_estimate"] is None:
+                        est = next_row.get("EPS Estimate")
+                        result["eps_estimate"] = float(est) if pd.notna(est) else None
+        except Exception as exc:
+            log.warning("%s: earnings_dates fallback failed: %s", ticker, exc)
+
     return result
 
 
