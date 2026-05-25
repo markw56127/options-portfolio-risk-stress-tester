@@ -11,14 +11,14 @@ try:
 except Exception:
     API = "http://localhost:8000"
 
-st.set_page_config(page_title="Portfolio Risk Stress-Tester", layout="wide", page_icon="📈")
-st.title("📈 Portfolio Risk Stress-Tester")
+st.set_page_config(page_title="Portfolio Risk Stress-Tester", layout="wide")
+st.title("Portfolio Risk Stress-Tester")
 
 tab1, tab2, tab3, tab4 = st.tabs([
-    "🔔 Earnings Impact Predictor",
-    "📊 Portfolio VaR & Stress Test",
-    "🧮 Black-Scholes Pricer",
-    "📈 Multi-Ticker Comparison",
+    "Earnings Impact Predictor",
+    "Portfolio VaR & Stress Test",
+    "Black-Scholes Pricer",
+    "Multi-Ticker Comparison",
 ])
 
 
@@ -28,8 +28,10 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.header("Earnings Impact Predictor")
     st.markdown(
-        "Enter a ticker to see its upcoming earnings, then simulate "
-        "how a beat or miss might move a specific option's price."
+        "Enter any US ticker to see its upcoming earnings, then simulate "
+        "how a beat or miss might move a specific option's price. "
+        "Earnings history is pre-loaded for AAPL, NVDA, and TSLA; "
+        "other tickers are fetched live (ETFs like SPY/QQQ have no earnings data)."
     )
 
     in_col, _ = st.columns([1, 3])
@@ -230,6 +232,7 @@ with tab1:
 with tab2:
     st.header("Portfolio VaR & Stress Test")
 
+
     # Settings inline (no sidebar clutter)
     s1, s2, s3 = st.columns(3)
     confidence = s1.slider("Confidence Level", 0.90, 0.99, 0.95, 0.01, key="var_conf")
@@ -312,14 +315,15 @@ with tab2:
 # ===========================================================================
 with tab3:
     st.header("Black-Scholes Option Pricer")
+
     st.markdown(
         "Compute price, Greeks, probability of profit, theta decay, and payoff diagram "
         "for any option. Click **Price Option** to update all charts."
     )
 
     bc1, bc2, bc3, bc4, bc5 = st.columns(5)
-    S_bs = bc1.number_input("Spot (S)", value=100.0, min_value=0.01, key="bs_S")
-    K_bs = bc2.number_input("Strike (K)", value=100.0, min_value=0.01, key="bs_K")
+    S_bs = bc1.number_input("Spot (S)", value=100.0, min_value=0.01, step=1.0, key="bs_S")
+    K_bs = bc2.number_input("Strike (K)", value=100.0, min_value=0.01, step=1.0, key="bs_K")
     T_bs = bc3.number_input("Time to Expiry (years)", value=0.25, min_value=0.001,
                              step=0.05, key="bs_T")
     sigma_bs = bc4.number_input("Implied Vol (σ)", value=0.20, min_value=0.001,
@@ -415,19 +419,17 @@ with tab3:
                 x=surf_df["spot"], y=surf_df["theta"], name="Theta (daily $)",
                 line=dict(color="#f39c12", width=2, dash="dot"), yaxis="y2",
             ))
-            fig_g.add_vline(x=K_p, line_dash="dash", line_color="gray",
-                            annotation_text="Strike")
-            fig_g.add_vline(x=S_p, line_dash="dot", line_color="#2ecc71",
-                            annotation_text="Spot")
+            fig_g.add_vline(x=K_p, line_dash="dash", line_color="gray")
+            fig_g.add_vline(x=S_p, line_dash="dot", line_color="#2ecc71")
             fig_g.update_layout(
                 xaxis_title="Spot Price",
-                yaxis=dict(title="Delta", titlefont=dict(color="#3498db")),
-                yaxis2=dict(title="Gamma / Theta", overlaying="y", side="right",
-                            titlefont=dict(color="#e74c3c")),
+                yaxis=dict(title="Delta"),
+                yaxis2=dict(title="Gamma / Theta", overlaying="y", side="right"),
                 height=350, margin=dict(t=20, b=20),
                 legend=dict(x=0.01, y=0.99),
             )
             st.plotly_chart(fig_g, use_container_width=True)
+            st.caption(f"Strike (gray dashed): ${K_p:.0f}  |  Current spot (green dotted): ${S_p:.0f}")
 
         st.divider()
 
@@ -480,18 +482,20 @@ with tab3:
             line=dict(width=0), showlegend=False, hoverinfo="skip",
         ))
         fig_po.add_hline(y=0, line_color="gray", line_width=1)
-        fig_po.add_vline(x=K_p, line_dash="dash", line_color="gray",
-                         annotation_text=f"Strike ${K_p:.0f}")
-        fig_po.add_vline(x=breakeven, line_dash="dot", line_color="#2ecc71",
-                         annotation_text=f"B/E ${breakeven:.2f}")
-        fig_po.add_vline(x=S_p, line_dash="dot", line_color="#f39c12",
-                         annotation_text=f"Spot ${S_p:.0f}")
+        fig_po.add_vline(x=K_p, line_dash="dash", line_color="gray")
+        fig_po.add_vline(x=breakeven, line_dash="dot", line_color="#2ecc71")
+        fig_po.add_vline(x=S_p, line_dash="dot", line_color="#f39c12")
         fig_po.update_layout(
             xaxis_title="Spot Price at Expiry",
             yaxis_title="P&L ($)",
             height=300, margin=dict(t=20, b=20),
         )
         st.plotly_chart(fig_po, use_container_width=True)
+        st.caption(
+            f"Strike (gray dashed): ${K_p:.0f}  |  "
+            f"Break-even (green dotted): ${breakeven:.2f}  |  "
+            f"Spot (orange dotted): ${S_p:.0f}"
+        )
 
     else:
         st.info("Enter parameters above and click **Price Option** to see price, Greeks, theta decay, and payoff diagram.")
@@ -502,6 +506,7 @@ with tab3:
 # ===========================================================================
 with tab4:
     st.header("Multi-Ticker Comparison")
+
     st.markdown(
         "Compare historical stock performance or theoretical option prices across up to 5 tickers. "
         "Enable **Normalize** to compare % change from the start of the period."

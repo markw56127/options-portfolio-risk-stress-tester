@@ -308,7 +308,7 @@ def get_earnings_info(ticker: str):
 def get_earnings_history(ticker: str):
     hist = load_earnings_history(ticker.upper())
     if hist.empty:
-        raise HTTPException(404, f"No earnings history for {ticker}. Run the data pipeline first.")
+        return []
     hist = hist.tail(8).copy()
     hist["date"] = hist["date"].astype(str)
     return hist.to_dict("records")
