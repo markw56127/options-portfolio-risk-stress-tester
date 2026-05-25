@@ -184,28 +184,91 @@ with tab1:
     history = st.session_state.earnings_history
 
     if info:
+        # Row 1 — upcoming earnings + historical move stats
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Next Earnings", info.get("upcoming_date") or "Not scheduled")
         eps_est = info.get("eps_estimate")
-        m2.metric("EPS Estimate", f"${eps_est:.2f}" if eps_est else "N/A")
+        m2.metric("Consensus EPS Estimate", f"${eps_est:.2f}" if eps_est else "N/A")
         avg_move = info.get("historical_avg_move_pct")
         m3.metric("Avg Post-Earnings Move", f"{avg_move*100:.1f}%" if avg_move else "N/A")
         m4.metric("Historical Events", str(info.get("n_events", 0)))
+
+        # Row 2 — valuation fundamentals
+        f1, f2, f3, f4, f5 = st.columns(5)
+        trailing_pe = info.get("trailing_pe")
+        f1.metric("Trailing P/E", f"{trailing_pe:.1f}x" if trailing_pe else "N/A")
+        forward_pe = info.get("forward_pe")
+        f2.metric("Forward P/E", f"{forward_pe:.1f}x" if forward_pe else "N/A")
+        peg = info.get("peg_ratio")
+        f3.metric("PEG Ratio", f"{peg:.2f}" if peg else "N/A", help="< 1 suggests the stock may be undervalued relative to earnings growth")
+        trailing_eps = info.get("trailing_eps")
+        f4.metric("Trailing EPS", f"${trailing_eps:.2f}" if trailing_eps else "N/A")
+        forward_eps = info.get("forward_eps")
+        f5.metric("Forward EPS", f"${forward_eps:.2f}" if forward_eps else "N/A")
+
+        # Row 3 — analyst forward estimate for current quarter
+        consensus = info.get("analyst_eps_consensus")
+        if consensus is not None:
+            low = info.get("analyst_eps_low")
+            high = info.get("analyst_eps_high")
+            n = info.get("analyst_count")
+            range_str = f"  (range: ${low:.2f} – ${high:.2f})" if low and high else ""
+            count_str = f"  ·  {int(n)} analysts" if n else ""
+            st.caption(f"Current-quarter analyst EPS consensus: **${consensus:.2f}**{range_str}{count_str}")
 
         if history:
             hdf = pd.DataFrame(history)
             hdf["eps_pct"] = hdf["eps_surprise_pct"] * 100
             hdf["move_pct"] = hdf["stock_move_pct"] * 100
             hdf["color"] = hdf["eps_pct"].apply(lambda x: "Beat" if x >= 0 else "Miss")
-            fig_hist = px.bar(
-                hdf, x="date", y="move_pct", color="color",
-                color_discrete_map={"Beat": "#2ecc71", "Miss": "#e74c3c"},
-                labels={"move_pct": "Next-Day Stock Move (%)", "date": "Date", "color": ""},
-                title=f"{st.session_state.earnings_loaded_for} — Historical Post-Earnings Stock Moves",
-                hover_data={"eps_pct": ":.1f"},
-            )
-            fig_hist.update_layout(height=260, margin=dict(t=40, b=20))
-            st.plotly_chart(fig_hist, use_container_width=True)
+            hdf["date_label"] = pd.to_datetime(hdf["date"]).dt.strftime("%b '%y")
+
+            chart_col1, chart_col2 = st.columns(2)
+
+            # Chart A — EPS over time: actual bars + estimate line
+            with chart_col1:
+                fig_eps = go.Figure()
+                fig_eps.add_trace(go.Bar(
+                    x=hdf["date_label"], y=hdf["eps_actual"],
+                    name="Actual EPS",
+                    marker_color=[("#2ecc71" if v >= 0 else "#e74c3c") for v in hdf["eps_actual"]],
+                    text=[f"${v:.2f}" for v in hdf["eps_actual"]],
+                    textposition="outside",
+                ))
+                fig_eps.add_trace(go.Scatter(
+                    x=hdf["date_label"], y=hdf["eps_estimate"],
+                    name="Estimate", mode="lines+markers",
+                    line=dict(color="#f39c12", width=2, dash="dot"),
+                    marker=dict(size=6),
+                ))
+                fig_eps.update_layout(
+                    title=f"{st.session_state.earnings_loaded_for} — EPS by Quarter",
+                    xaxis_title="Quarter", yaxis_title="EPS ($)",
+                    height=300, margin=dict(t=40, b=20),
+                    legend=dict(x=0.01, y=0.99),
+                )
+                st.plotly_chart(fig_eps, use_container_width=True)
+
+            # Chart B — next-day stock move, coloured by beat/miss
+            with chart_col2:
+                fig_move = go.Figure()
+                fig_move.add_trace(go.Bar(
+                    x=hdf["date_label"], y=hdf["move_pct"],
+                    name="Stock Move",
+                    marker_color=[("#2ecc71" if v >= 0 else "#e74c3c") for v in hdf["move_pct"]],
+                    text=[f"{v:+.1f}%" for v in hdf["move_pct"]],
+                    textposition="outside",
+                    customdata=hdf[["eps_pct"]].values,
+                    hovertemplate="Move: %{y:.1f}%<br>EPS surprise: %{customdata[0]:.1f}%<extra></extra>",
+                ))
+                fig_move.add_hline(y=0, line_color="gray", line_width=1)
+                fig_move.update_layout(
+                    title=f"{st.session_state.earnings_loaded_for} — Post-Earnings Stock Move",
+                    xaxis_title="Quarter", yaxis_title="Next-Day Move (%)",
+                    height=300, margin=dict(t=40, b=20),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_move, use_container_width=True)
         else:
             st.info("No earnings history available for this ticker (ETFs and some stocks have no earnings data).")
     else:

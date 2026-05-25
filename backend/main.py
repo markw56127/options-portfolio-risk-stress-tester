@@ -301,7 +301,46 @@ def get_earnings_info(ticker: str):
             "historical_move_std": round(float(moves.std()), 4),
             "n_events": int(len(moves)),
         }
-    return {**upcoming, **stats}
+
+    # Fundamentals + analyst estimates from ticker.info / earnings_estimate
+    fundamentals = {}
+    try:
+        t = yf.Ticker(ticker.upper())
+        info = t.info or {}
+        for key, out in [
+            ("trailingPE",  "trailing_pe"),
+            ("forwardPE",   "forward_pe"),
+            ("pegRatio",    "peg_ratio"),
+            ("trailingEps", "trailing_eps"),
+            ("forwardEps",  "forward_eps"),
+        ]:
+            v = info.get(key)
+            if v is not None:
+                try:
+                    fv = float(v)
+                    if np.isfinite(fv):
+                        fundamentals[out] = round(fv, 2)
+                except (TypeError, ValueError):
+                    pass
+
+        # Analyst forward EPS estimate for the current quarter
+        try:
+            ee = t.earnings_estimate
+            if ee is not None and not ee.empty and "0q" in ee.index:
+                row = ee.loc["0q"]
+                def _safe(x):
+                    try: return round(float(x), 2) if pd.notna(x) else None
+                    except: return None
+                fundamentals["analyst_eps_consensus"] = _safe(row.get("avg"))
+                fundamentals["analyst_eps_low"]       = _safe(row.get("low"))
+                fundamentals["analyst_eps_high"]      = _safe(row.get("high"))
+                fundamentals["analyst_count"]         = _safe(row.get("numberOfAnalysts"))
+        except Exception:
+            pass
+    except Exception as exc:
+        log.warning("%s: could not fetch fundamentals: %s", ticker, exc)
+
+    return {**upcoming, **stats, **fundamentals}
 
 
 @app.get("/earnings/history/{ticker}", tags=["Earnings"])
