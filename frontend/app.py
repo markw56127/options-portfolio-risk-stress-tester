@@ -27,44 +27,33 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # ===========================================================================
 with tab1:
     st.header("Earnings Impact Predictor")
-    st.markdown(
-        "Enter any US ticker to see its upcoming earnings, then simulate "
-        "how a beat or miss might move a specific option's price. "
-        "Earnings history is pre-loaded for AAPL, NVDA, and TSLA; "
-        "other tickers are fetched live (ETFs like SPY/QQQ have no earnings data)."
-    )
 
-    in_col, _ = st.columns([1, 3])
-    with in_col:
-        ticker = st.text_input("Ticker symbol", value="AAPL").upper().strip()
-        load_btn = st.button("Load Earnings Data", type="primary")
-
-    for k, v in [("earnings_info", None), ("earnings_history", []),
-                 ("options_chain", None), ("current_ticker", None),
-                 ("ph_key", ""), ("ph_data", None)]:
+    # Session state init
+    for k, v in [("options_chain", None), ("current_ticker", None),
+                 ("ph_key", ""), ("ph_data", None),
+                 ("earnings_info", None), ("earnings_history", []),
+                 ("earnings_loaded_for", None)]:
         if k not in st.session_state:
             st.session_state[k] = v
 
-    if load_btn or ticker != st.session_state.current_ticker:
+    # --- Ticker input: chain auto-loads on change ---
+    ticker = st.text_input(
+        "Ticker symbol", value="AAPL",
+        help="Press Enter or Tab to load. Works with any US stock ticker."
+    ).upper().strip()
+
+    if ticker and ticker != st.session_state.current_ticker:
         st.session_state.current_ticker = ticker
-        st.session_state.ph_key = ""   # invalidate cached option price history
-        with st.spinner(f"Fetching data for {ticker}…"):
-            try:
-                r = requests.get(f"{API}/earnings/{ticker}", timeout=30)
-                st.session_state.earnings_info = r.json() if r.ok else None
-            except Exception as e:
-                st.error(f"API unreachable: {e}")
-                st.session_state.earnings_info = None
-            try:
-                r = requests.get(f"{API}/earnings/history/{ticker}", timeout=30)
-                st.session_state.earnings_history = r.json() if r.ok else []
-            except Exception:
-                st.session_state.earnings_history = []
+        st.session_state.ph_key = ""
+        # Clear stale earnings if ticker changed
+        if ticker != st.session_state.earnings_loaded_for:
+            st.session_state.earnings_info = None
+            st.session_state.earnings_history = []
+        with st.spinner(f"Loading {ticker} options chain…"):
             try:
                 r = requests.get(f"{API}/options/chain/{ticker}", timeout=30)
                 chain_data = r.json() if r.ok else None
                 st.session_state.options_chain = chain_data
-                # Auto-populate BS Pricer inputs with live spot + nearest ATM strike
                 if chain_data:
                     spot_val = chain_data.get("spot")
                     if spot_val:
@@ -73,70 +62,52 @@ with tab1:
                         if calls:
                             atm = min(calls, key=lambda c: abs(c["strike"] - spot_val))
                             st.session_state["bs_K"] = float(atm["strike"])
-            except Exception:
+            except Exception as e:
+                st.error(f"API unreachable: {e}")
                 st.session_state.options_chain = None
 
-    info = st.session_state.earnings_info
-    history = st.session_state.earnings_history
     chain = st.session_state.options_chain
 
-    if info:
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Next Earnings", info.get("upcoming_date") or "Not scheduled")
-        eps_est = info.get("eps_estimate")
-        m2.metric("EPS Estimate", f"${eps_est:.2f}" if eps_est else "N/A")
-        avg_move = info.get("historical_avg_move_pct")
-        m3.metric("Avg Post-Earnings Move", f"{avg_move*100:.1f}%" if avg_move else "N/A")
-        m4.metric("Historical Events", str(info.get("n_events", 0)))
+    # -----------------------------------------------------------------------
+    # SECTION 1 — OPTION SELECTOR + PRICE HISTORY (auto-loaded)
+    # -----------------------------------------------------------------------
+    if chain:
+        spot = chain.get("spot")
+        expiry = chain.get("expiry", "")
+        all_strikes = sorted(set(
+            [c["strike"] for c in chain.get("calls", [])] +
+            [p["strike"] for p in chain.get("puts", [])]
+        ))
 
-        st.divider()
-
-        # Historical earnings chart (left) + option selector (right)
-        chart_col, sel_col = st.columns([3, 1])
-        with chart_col:
-            if history:
-                hdf = pd.DataFrame(history)
-                hdf["eps_pct"] = hdf["eps_surprise_pct"] * 100
-                hdf["move_pct"] = hdf["stock_move_pct"] * 100
-                hdf["color"] = hdf["eps_pct"].apply(lambda x: "Beat" if x >= 0 else "Miss")
-                fig_hist = px.bar(
-                    hdf, x="date", y="move_pct", color="color",
-                    color_discrete_map={"Beat": "#2ecc71", "Miss": "#e74c3c"},
-                    labels={"move_pct": "Next-Day Stock Move (%)", "date": "Date", "color": ""},
-                    title=f"{ticker} — Historical Post-Earnings Stock Moves",
-                    hover_data={"eps_pct": ":.1f"},
-                )
-                fig_hist.update_layout(height=260, margin=dict(t=40, b=20))
-                st.plotly_chart(fig_hist, use_container_width=True)
-            else:
-                st.info("No earnings history available for this ticker.")
-
-        with sel_col:
-            st.subheader("Select Option")
-            if chain and chain.get("calls"):
-                spot = chain.get("spot")
-                all_strikes = sorted(set(
-                    [c["strike"] for c in chain.get("calls", [])] +
-                    [p["strike"] for p in chain.get("puts", [])]
-                ))
-                expiry = chain.get("expiry", "")
-                st.caption(f"Expiry: **{expiry}**" + (f" | Spot: **${spot:.2f}**" if spot else ""))
-                strike = st.selectbox("Strike", all_strikes,
-                                      index=len(all_strikes) // 2 if all_strikes else 0)
-                dte = st.number_input("DTE", min_value=1, max_value=365, value=30)
-            else:
-                spot = None
-                st.caption("Live chain unavailable — manual entry")
-                strike = st.number_input("Strike", min_value=1.0, value=200.0, step=1.0)
-                dte = st.number_input("DTE", min_value=1, max_value=365, value=30)
+        sel1, sel2, sel3, info_col = st.columns([2, 1, 1, 2])
+        with sel1:
+            strike = st.selectbox(
+                "Strike", all_strikes,
+                index=len(all_strikes) // 2 if all_strikes else 0,
+            )
+        with sel2:
+            dte = st.number_input("DTE", min_value=1, max_value=365, value=30)
+        with sel3:
             flag = st.radio("Type", ["call", "put"], horizontal=True)
+        with info_col:
+            if spot:
+                st.metric("Spot Price", f"${spot:.2f}",
+                          help=f"Nearest expiry: {expiry}")
+    else:
+        if ticker:
+            st.info("Live chain unavailable — enter parameters manually.")
+        spot = None
+        man1, man2, man3 = st.columns(3)
+        strike = man1.number_input("Strike", min_value=1.0, value=200.0, step=1.0)
+        dte = man2.number_input("DTE", min_value=1, max_value=365, value=30)
+        flag = man3.radio("Type", ["call", "put"], horizontal=True)
 
-        # Option price history — cached by (ticker, strike, dte, flag, period)
-        st.subheader("Theoretical Option Price History")
-        period_choice = st.radio("Period", ["1W", "1M", "3M", "6M"], index=1,
-                                 horizontal=True, key="t1_period")
-        ph_key = f"{ticker}_{strike}_{dte}_{flag}_{period_choice}"
-        if st.session_state.ph_key != ph_key:
+    # Theoretical price history chart — cached, re-fetches when params change
+    period_choice = st.radio("Period", ["1W", "1M", "3M", "6M"], index=1,
+                             horizontal=True, key="t1_period")
+    ph_key = f"{ticker}_{strike}_{dte}_{flag}_{period_choice}"
+    if ticker and st.session_state.ph_key != ph_key:
+        with st.spinner("Loading price history…"):
             try:
                 r2 = requests.get(
                     f"{API}/options/price_history/{ticker}",
@@ -148,92 +119,143 @@ with tab1:
             except Exception:
                 st.session_state.ph_data = None
 
-        ph = st.session_state.ph_data
-        if ph and ph.get("history"):
-            ph_df = pd.DataFrame(ph["history"])
-            fig_ph = go.Figure()
-            fig_ph.add_trace(go.Scatter(
-                x=ph_df["date"], y=ph_df["theoretical_price"],
-                name=f"{flag.capitalize()} K={int(strike)}",
-                line=dict(color="#3498db", width=2),
-            ))
-            fig_ph.add_trace(go.Scatter(
-                x=ph_df["date"], y=ph_df["spot"],
-                name="Spot Price",
-                line=dict(color="#95a5a6", width=1, dash="dot"),
-                yaxis="y2",
-            ))
-            fig_ph.update_layout(
-                xaxis_title="Date",
-                yaxis_title="Option Price ($)",
-                yaxis2=dict(title="Spot Price ($)", overlaying="y", side="right"),
-                height=280, margin=dict(t=20, b=20),
-                legend=dict(x=0.01, y=0.99),
+    ph = st.session_state.ph_data
+    if ph and ph.get("history"):
+        ph_df = pd.DataFrame(ph["history"])
+        fig_ph = go.Figure()
+        fig_ph.add_trace(go.Scatter(
+            x=ph_df["date"], y=ph_df["theoretical_price"],
+            name=f"{flag.capitalize()} K={int(strike)}",
+            line=dict(color="#3498db", width=2),
+        ))
+        fig_ph.add_trace(go.Scatter(
+            x=ph_df["date"], y=ph_df["spot"],
+            name="Spot Price",
+            line=dict(color="#95a5a6", width=1, dash="dot"),
+            yaxis="y2",
+        ))
+        fig_ph.update_layout(
+            xaxis_title="Date",
+            yaxis_title="Option Price ($)",
+            yaxis2=dict(title="Spot Price ($)", overlaying="y", side="right"),
+            height=280, margin=dict(t=20, b=20),
+            legend=dict(x=0.01, y=0.99),
+        )
+        st.plotly_chart(fig_ph, use_container_width=True)
+    elif ticker:
+        st.info("Option price history unavailable for this ticker.")
+
+    if chain and chain.get("calls"):
+        with st.expander("Live options chain"):
+            lc1, lc2 = st.columns(2)
+            lc1.caption("Calls")
+            lc1.dataframe(pd.DataFrame(chain["calls"]), use_container_width=True, hide_index=True)
+            lc2.caption("Puts")
+            lc2.dataframe(pd.DataFrame(chain["puts"]), use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # -----------------------------------------------------------------------
+    # SECTION 2 — EARNINGS HISTORY (separate button)
+    # -----------------------------------------------------------------------
+    st.subheader("Earnings History")
+    earnings_btn = st.button("Load Earnings Data", type="secondary")
+    if earnings_btn and ticker:
+        st.session_state.earnings_loaded_for = ticker
+        with st.spinner(f"Fetching earnings for {ticker}…"):
+            try:
+                r = requests.get(f"{API}/earnings/{ticker}", timeout=30)
+                st.session_state.earnings_info = r.json() if r.ok else None
+            except Exception as e:
+                st.error(f"API unreachable: {e}")
+                st.session_state.earnings_info = None
+            try:
+                r = requests.get(f"{API}/earnings/history/{ticker}", timeout=30)
+                st.session_state.earnings_history = r.json() if r.ok else []
+            except Exception:
+                st.session_state.earnings_history = []
+
+    info = st.session_state.earnings_info
+    history = st.session_state.earnings_history
+
+    if info:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Next Earnings", info.get("upcoming_date") or "Not scheduled")
+        eps_est = info.get("eps_estimate")
+        m2.metric("EPS Estimate", f"${eps_est:.2f}" if eps_est else "N/A")
+        avg_move = info.get("historical_avg_move_pct")
+        m3.metric("Avg Post-Earnings Move", f"{avg_move*100:.1f}%" if avg_move else "N/A")
+        m4.metric("Historical Events", str(info.get("n_events", 0)))
+
+        if history:
+            hdf = pd.DataFrame(history)
+            hdf["eps_pct"] = hdf["eps_surprise_pct"] * 100
+            hdf["move_pct"] = hdf["stock_move_pct"] * 100
+            hdf["color"] = hdf["eps_pct"].apply(lambda x: "Beat" if x >= 0 else "Miss")
+            fig_hist = px.bar(
+                hdf, x="date", y="move_pct", color="color",
+                color_discrete_map={"Beat": "#2ecc71", "Miss": "#e74c3c"},
+                labels={"move_pct": "Next-Day Stock Move (%)", "date": "Date", "color": ""},
+                title=f"{st.session_state.earnings_loaded_for} — Historical Post-Earnings Stock Moves",
+                hover_data={"eps_pct": ":.1f"},
             )
-            st.plotly_chart(fig_ph, use_container_width=True)
+            fig_hist.update_layout(height=260, margin=dict(t=40, b=20))
+            st.plotly_chart(fig_hist, use_container_width=True)
         else:
-            st.info("Option price history unavailable for this ticker.")
-
-        st.divider()
-        st.subheader("Predict Option Price Change")
-
-        pred_col, res_col = st.columns([1, 1])
-        with pred_col:
-            eps_surprise = st.slider(
-                "EPS Surprise (%)", min_value=-30, max_value=30, value=0, step=1,
-                format="%d%%",
-                help="Negative = miss vs estimate, Positive = beat vs estimate",
-            )
-            label = "🟢 Beat" if eps_surprise > 0 else ("🔴 Miss" if eps_surprise < 0 else "⚪ Neutral")
-            st.caption(f"Scenario: **{label}** by {abs(eps_surprise)}%")
-            predict_btn = st.button("Predict Impact", type="primary")
-
-        with res_col:
-            if predict_btn:
-                with st.spinner("Running model…"):
-                    try:
-                        resp = requests.post(
-                            f"{API}/earnings/impact",
-                            json={"ticker": ticker, "strike": float(strike), "dte": int(dte),
-                                  "eps_surprise_pct": eps_surprise / 100, "flag": flag},
-                            timeout=30,
-                        )
-                        if resp.ok:
-                            rv = resp.json()
-                            st.success("Prediction complete")
-                            pm1, pm2, pm3 = st.columns(3)
-                            pm1.metric("Predicted Stock Move",
-                                       f"{rv['predicted_stock_move_pct']*100:+.1f}%")
-                            pm2.metric(f"{flag.capitalize()} Price Before",
-                                       f"${rv['current_price']:.2f}")
-                            pm3.metric(f"{flag.capitalize()} Price After",
-                                       f"${rv['predicted_price']:.2f}",
-                                       delta=f"{rv['predicted_option_change_pct']*100:+.1f}%")
-                            with st.expander("Model details"):
-                                st.json({
-                                    "spot": rv.get("spot"),
-                                    "implied_vol": rv.get("iv"),
-                                    "delta": rv.get("delta"),
-                                    "gamma": rv.get("gamma"),
-                                    "method": "XGBoost → delta-gamma approximation",
-                                })
-                        else:
-                            st.error(f"API error {resp.status_code}: {resp.text}")
-                    except Exception as e:
-                        st.error(f"Request failed: {e}")
-
-        if chain and chain.get("calls"):
-            with st.expander("Live options chain"):
-                lc1, lc2 = st.columns(2)
-                lc1.caption("Calls")
-                lc1.dataframe(pd.DataFrame(chain["calls"]), use_container_width=True,
-                              hide_index=True)
-                lc2.caption("Puts")
-                lc2.dataframe(pd.DataFrame(chain["puts"]), use_container_width=True,
-                              hide_index=True)
-
+            st.info("No earnings history available for this ticker (ETFs and some stocks have no earnings data).")
     else:
-        st.info("Enter a ticker above and click **Load Earnings Data** to begin.")
+        st.caption("Click **Load Earnings Data** to see upcoming earnings date, EPS estimate, and historical post-earnings moves.")
+
+    st.divider()
+
+    # -----------------------------------------------------------------------
+    # SECTION 3 — PREDICT IMPACT
+    # -----------------------------------------------------------------------
+    st.subheader("Predict Option Price Change")
+    pred_col, res_col = st.columns([1, 1])
+    with pred_col:
+        eps_surprise = st.slider(
+            "EPS Surprise (%)", min_value=-30, max_value=30, value=0, step=1,
+            format="%d%%",
+            help="Negative = miss vs estimate, Positive = beat vs estimate",
+        )
+        label = "Beat" if eps_surprise > 0 else ("Miss" if eps_surprise < 0 else "Neutral")
+        st.caption(f"Scenario: **{label}** by {abs(eps_surprise)}%")
+        predict_btn = st.button("Predict Impact", type="primary")
+
+    with res_col:
+        if predict_btn and ticker:
+            with st.spinner("Running model…"):
+                try:
+                    resp = requests.post(
+                        f"{API}/earnings/impact",
+                        json={"ticker": ticker, "strike": float(strike), "dte": int(dte),
+                              "eps_surprise_pct": eps_surprise / 100, "flag": flag},
+                        timeout=30,
+                    )
+                    if resp.ok:
+                        rv = resp.json()
+                        st.success("Prediction complete")
+                        pm1, pm2, pm3 = st.columns(3)
+                        pm1.metric("Predicted Stock Move",
+                                   f"{rv['predicted_stock_move_pct']*100:+.1f}%")
+                        pm2.metric(f"{flag.capitalize()} Price Before",
+                                   f"${rv['current_price']:.2f}")
+                        pm3.metric(f"{flag.capitalize()} Price After",
+                                   f"${rv['predicted_price']:.2f}",
+                                   delta=f"{rv['predicted_option_change_pct']*100:+.1f}%")
+                        with st.expander("Model details"):
+                            st.json({
+                                "spot": rv.get("spot"),
+                                "implied_vol": rv.get("iv"),
+                                "delta": rv.get("delta"),
+                                "gamma": rv.get("gamma"),
+                                "method": "XGBoost → delta-gamma approximation",
+                            })
+                    else:
+                        st.error(f"API error {resp.status_code}: {resp.text}")
+                except Exception as e:
+                    st.error(f"Request failed: {e}")
 
 
 # ===========================================================================
