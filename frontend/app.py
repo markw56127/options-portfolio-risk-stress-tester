@@ -76,35 +76,46 @@ with tab1:
     # -----------------------------------------------------------------------
     # SECTION 1 — OPTION SELECTOR + PRICE HISTORY (auto-loaded)
     # -----------------------------------------------------------------------
+    _today = pd.Timestamp.now().normalize()
+
     if chain:
         spot = chain.get("spot")
-        expiry = chain.get("expiry", "")
         all_strikes = sorted(set(
             [c["strike"] for c in chain.get("calls", [])] +
             [p["strike"] for p in chain.get("puts", [])]
         ))
+        expiries = chain.get("expiries") or [chain.get("expiry", "")]
 
-        sel1, sel2, sel3, info_col = st.columns([2, 1, 1, 2])
+        sel1, sel2, sel3, sel4, sel5 = st.columns([2, 2, 1, 1, 1])
         with sel1:
             strike = st.selectbox(
                 "Strike", all_strikes,
                 index=len(all_strikes) // 2 if all_strikes else 0,
             )
         with sel2:
-            dte = st.number_input("DTE", min_value=1, max_value=365, value=30)
+            expiry_choice = st.selectbox(
+                "Expiry Date", expiries,
+                help="Contract expiration date from the live options chain. DTE is computed automatically as (expiry − today).",
+            )
+            dte = max(1, (pd.Timestamp(expiry_choice) - _today).days)
         with sel3:
             flag = st.radio("Type", ["call", "put"], horizontal=True)
-        with info_col:
+        with sel4:
+            st.metric("DTE", f"{dte}d", help="Days to expiration from today, derived from the selected expiry date.")
+        with sel5:
             if spot:
-                st.metric("Spot Price", f"${spot:.2f}",
-                          help=f"Nearest expiry: {expiry}")
+                st.metric("Spot", f"${spot:.2f}")
     else:
         if ticker:
             st.info("Live chain unavailable — enter parameters manually.")
         spot = None
         man1, man2, man3 = st.columns(3)
         strike = man1.number_input("Strike", min_value=1.0, value=200.0, step=1.0)
-        dte = man2.number_input("DTE", min_value=1, max_value=365, value=30)
+        dte = man2.number_input(
+            "Days to Expiry",
+            min_value=1, max_value=730, value=30,
+            help="Number of days until the option expires, counted from today.",
+        )
         flag = man3.radio("Type", ["call", "put"], horizontal=True)
 
     # Theoretical price history chart — cached, re-fetches when params change
@@ -147,6 +158,12 @@ with tab1:
             legend=dict(x=0.01, y=0.99),
         )
         st.plotly_chart(fig_ph, use_container_width=True)
+        st.caption(
+            f"Each point prices a hypothetical **{dte}-DTE {flag}** on that date using "
+            f"rolling 30-day historical volatility as the IV estimate. "
+            f"This models what the option would have cost if you bought a fresh {dte}-day "
+            f"contract on each past date — it does not track a single real position."
+        )
     elif ticker:
         st.info("Option price history unavailable for this ticker.")
 
@@ -534,8 +551,12 @@ with tab3:
     bc1, bc2, bc3, bc4, bc5 = st.columns(5)
     S_bs = bc1.number_input("Spot (S)", value=100.0, min_value=0.01, step=1.0, key="bs_S")
     K_bs = bc2.number_input("Strike (K)", value=100.0, min_value=0.01, step=1.0, key="bs_K")
-    T_bs = bc3.number_input("Time to Expiry (years)", value=0.25, min_value=0.001,
-                             step=0.05, key="bs_T")
+    T_days_bs = bc3.number_input(
+        "Days to Expiry", value=90, min_value=1, max_value=730, step=1,
+        key="bs_T_days",
+        help="Days until the option expires from today. Converted to years internally: T = days / 365.",
+    )
+    T_bs = T_days_bs / 365.0
     sigma_bs = bc4.number_input("Implied Vol (σ)", value=0.20, min_value=0.001,
                                  step=0.01, key="bs_sigma")
     flag_bs = bc5.selectbox("Type", ["call", "put"], key="bs_flag")
@@ -558,7 +579,7 @@ with tab3:
                     timeout=10,
                 )
                 # Theta decay (days to 0)
-                T_max_days = max(int(T_bs * 365), 2)
+                T_max_days = max(int(T_days_bs), 2)
                 r_decay = requests.post(
                     f"{API}/options/theta_decay",
                     json={"S": S_bs, "K": K_bs, "T_max_days": T_max_days,

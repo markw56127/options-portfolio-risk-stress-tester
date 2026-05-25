@@ -200,9 +200,18 @@ def get_options_chain(ticker: str, max_strikes: int = 20):
                     "volume", "openInterest", "inTheMoney", "flag"]
             return df[[c for c in keep if c in df.columns]].fillna(0)
 
+        # Include up to 12 months of expiry dates so the frontend can build a picker
+        from datetime import date as _date
+        _today = _date.today()
+        near_expiries = [
+            e for e in exps
+            if (pd.Timestamp(e).date() - _today).days <= 365
+        ]
+
         return {
             "ticker": ticker,
             "expiry": exp,
+            "expiries": near_expiries,
             "spot": S,
             "calls": enrich(chain.calls, "call").to_dict("records"),
             "puts": enrich(chain.puts, "put").to_dict("records"),
