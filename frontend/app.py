@@ -30,6 +30,7 @@ with tab1:
 
     # Session state init
     for k, v in [("options_chain", None), ("current_ticker", None),
+                 ("current_expiry", None),
                  ("ph_key", ""), ("ph_data", None),
                  ("earnings_info", None), ("earnings_history", []),
                  ("earnings_loaded_for", None)]:
@@ -50,6 +51,7 @@ with tab1:
     _should_load = _search_btn or (ticker and ticker != st.session_state.current_ticker)
     if ticker and _should_load:
         st.session_state.current_ticker = ticker
+        st.session_state.current_expiry = None
         st.session_state.ph_key = ""
         if ticker != st.session_state.earnings_loaded_for:
             st.session_state.earnings_info = None
@@ -98,6 +100,18 @@ with tab1:
                 help="Contract expiration date from the live options chain. DTE is computed automatically as (expiry − today).",
             )
             dte = max(1, (pd.Timestamp(expiry_choice) - _today).days)
+
+            # Refetch chain if expiry selection changed
+            if expiry_choice != st.session_state.current_expiry:
+                st.session_state.current_expiry = expiry_choice
+                with st.spinner(f"Loading options chain for {expiry_choice}…"):
+                    try:
+                        r = requests.get(f"{API}/options/chain/{ticker}",
+                                        params={"expiry": expiry_choice}, timeout=30)
+                        chain_data = r.json() if r.ok else None
+                        st.session_state.options_chain = chain_data
+                    except Exception as e:
+                        st.error(f"Failed to load chain for {expiry_choice}: {e}")
         with sel3:
             flag = st.radio("Type", ["call", "put"], horizontal=True)
         with sel4:

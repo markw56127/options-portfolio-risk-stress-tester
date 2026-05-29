@@ -176,14 +176,14 @@ def theta_decay_curve(req: ThetaDecayRequest):
 
 
 @app.get("/options/chain/{ticker}", tags=["Options"])
-def get_options_chain(ticker: str, max_strikes: int = 20):
-    """Fetch live options chain for a ticker. Returns nearest expiry calls + puts."""
+def get_options_chain(ticker: str, expiry: str = None, max_strikes: int = 20):
+    """Fetch live options chain for a ticker. Returns calls + puts for selected expiry (or nearest if not specified)."""
     try:
         t = yf.Ticker(ticker)
         exps = t.options
         if not exps:
             raise HTTPException(404, f"No options found for {ticker}")
-        exp = exps[0]
+        exp = expiry if expiry and expiry in exps else exps[0]
         chain = t.option_chain(exp)
 
         spot_data = yf.download(ticker, period="2d", auto_adjust=True, progress=False)["Close"]
