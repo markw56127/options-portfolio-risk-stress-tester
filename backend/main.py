@@ -198,7 +198,8 @@ def get_options_chain(ticker: str, expiry: str = None, max_strikes: int = 20):
                 df = df.nsmallest(max_strikes, "dist").drop(columns="dist")
             keep = ["strike", "lastPrice", "bid", "ask", "impliedVolatility",
                     "volume", "openInterest", "inTheMoney", "flag"]
-            return df[[c for c in keep if c in df.columns]].fillna(0)
+            df = df[[c for c in keep if c in df.columns]].fillna(0)
+            return df.sort_values("strike").reset_index(drop=True)
 
         # Include up to 12 months of expiry dates so the frontend can build a picker
         from datetime import date as _date
