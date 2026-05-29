@@ -101,17 +101,23 @@ with tab1:
             )
             dte = max(1, (pd.Timestamp(expiry_choice) - _today).days)
 
-            # Refetch chain if expiry selection changed
-            if expiry_choice != st.session_state.current_expiry:
-                st.session_state.current_expiry = expiry_choice
-                with st.spinner(f"Loading options chain for {expiry_choice}…"):
-                    try:
-                        r = requests.get(f"{API}/options/chain/{ticker}",
-                                        params={"expiry": expiry_choice}, timeout=30)
-                        chain_data = r.json() if r.ok else None
-                        st.session_state.options_chain = chain_data
-                    except Exception as e:
-                        st.error(f"Failed to load chain for {expiry_choice}: {e}")
+        # Re-fetch chain when user selects a different expiry
+        if expiry_choice != st.session_state.current_expiry:
+            with st.spinner(f"Loading {expiry_choice} chain…"):
+                try:
+                    _r = requests.get(
+                        f"{API}/options/chain/{ticker}",
+                        params={"expiry": expiry_choice},
+                        timeout=30,
+                    )
+                    if _r.ok:
+                        _new_chain = _r.json()
+                        _new_chain["expiries"] = expiries  # preserve full list
+                        st.session_state.options_chain = _new_chain
+                        st.session_state.current_expiry = expiry_choice
+                        st.rerun()
+                except Exception:
+                    pass
         with sel3:
             flag = st.radio("Type", ["call", "put"], horizontal=True)
         with sel4:

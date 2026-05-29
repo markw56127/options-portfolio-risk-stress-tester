@@ -196,6 +196,7 @@ def get_options_chain(ticker: str, expiry: str = None, max_strikes: int = 20):
             if S and len(df) > max_strikes:
                 df["dist"] = abs(df["strike"] - S)
                 df = df.nsmallest(max_strikes, "dist").drop(columns="dist")
+            df = df.sort_values("strike")
             keep = ["strike", "lastPrice", "bid", "ask", "impliedVolatility",
                     "volume", "openInterest", "inTheMoney", "flag"]
             df = df[[c for c in keep if c in df.columns]].fillna(0)
