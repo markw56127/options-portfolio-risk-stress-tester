@@ -115,7 +115,7 @@ with tab1:
                         _new_chain["expiries"] = expiries  # preserve full list
                         st.session_state.options_chain = _new_chain
                         st.session_state.current_expiry = expiry_choice
-                        st.rerun()
+                        chain = _new_chain  # update local var so rest of page uses new data
                 except Exception:
                     pass
         with sel3:
