@@ -215,4 +215,4 @@ streamlit, plotly
 | XGBoost + Earnings models | May 11 – May 25 | Planned |
 | LSTM model | May 18 – May 25 | Planned |
 | Model comparison | May 25 – June 1 | Planned |
-| Deployment & docs | May 25 – June 1 | Planned |
+| Deployment & docs | May 25 – June 1 | Planned | 
