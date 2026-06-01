@@ -40,3 +40,8 @@ secrets.toml
 # IDE
 .vscode/
 .idea/
+
+# Generated presentation outputs (not for submission)
+presentation/wang-mark-final*.pptx
+presentation/final_figs/
+models/comparison_results.csv

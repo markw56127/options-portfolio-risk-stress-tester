@@ -142,51 +142,105 @@ TSLA,0.3,0.025
 | Frontend (Streamlit) | Streamlit Community Cloud | https://stats418-portfolio-risk-tester.streamlit.app |
 | Backend API (FastAPI) | Google Cloud Run | https://risk-api-388146732000.us-central1.run.app |
 
-*Frontend URL will be updated after Streamlit deployment. Both services must be live through June 9, 2026.*
+*Both services are live and accessible through June 9, 2026.*
 
 ---
 
 ## Solution Architecture
 
-*Architecture diagram to be added.*
+```mermaid
+flowchart TD
+  n0["Yahoo Finance API\n(external)"]
+  n1["data/fetch_market_data.py"]
+  n2["data/fetch_earnings.py"]
+  n3["data/preprocess.py\n(StandardScaler, feature engineering,\ntrain/val/test split)"]
+  n4["models/black_scholes.py"]
+  n5["models/lstm_model.py"]
+  n6["models/compare_models.py"]
+  n7["models/xgboost_model.py"]
+  n8["models/earnings_impact_model.py\n(MAPE / R² evaluation)"]
+  n9["backend/main.py\n(FastAPI — Google Cloud Run)"]
+  n10["/var/*\n(VaR & stress scenarios)"]
+  n11["/options/*\n(Pricing, Greeks, live chain)"]
+  n12["/earnings/*\n(EPS prediction & history)"]
+  n13["frontend/app.py\n(Streamlit — Streamlit Community Cloud)"]
+  n14["Browser"]
 
-```
-Yahoo Finance API
-      │
-      ▼
-data/fetch_market_data.py   data/fetch_earnings.py
-      │                              │
-      └──────────┬───────────────────┘
-                 ▼
-         data/preprocess.py
-                 │
-       ┌─────────┴──────────┐
-       ▼                    ▼
-models/xgboost_model.py   models/lstm_model.py
-models/earnings_impact_model.py
-       │
-       ▼
-backend/main.py  (FastAPI — Cloud Run)
-       │
-       ▼
-frontend/app.py  (Streamlit — Streamlit Cloud)
-       │
-       ▼
-    Browser
+  n0 --> n1
+  n0 --> n2
+  n1 --> n3
+  n2 --> n3
+  n4 --> n6
+  n5 --> n6
+  n3 --> n4
+  n3 --> n5
+  n3 --> n7
+  n3 --> n8
+  n9 --> n10
+  n9 --> n11
+  n9 --> n12
+  n6 --> n9
+  n7 --> n9
+  n8 --> n9
+  n9 --> n13
+  n13 --> n14
+
 ```
 
 ---
 
 ## AI Assistant Usage
 
-*Full documentation to be added.*
+This project was developed with significant assistance from **Claude Code (Sonnet 4.6)** by Anthropic, used interactively throughout the entire development lifecycle via the Claude Code CLI and VS Code extension.
 
-This project was developed with significant assistance from **Claude Code** (Anthropic). Key areas where AI assistance was used:
+### Tools Used
 
-- **Code creation** — Editing and writing of individual lines of code
-- **Language** - README language and writing, timeline and chart creation
-- **Frontend** — Streamlit layout, Plotly chart configuration, session state management
-- **Deployment** — Dockerfile optimization, Cloud Run configuration, Streamlit secrets
+| Tool | Version | Primary Use |
+|------|---------|-------------|
+| Claude Code | Sonnet 4.6 | Primary AI assistant — code, debugging, deployment |
+
+### How AI Assistance Was Applied
+
+**Model Development**
+- Structured the XGBoost training loop and hyperparameter setup (`xgboost_model.py`)
+- Built the PyTorch LSTM architecture with 21-day rolling windows (`lstm_model.py`)
+- Designed the earnings impact model combining XGBoost predictions with a delta-gamma approximation (`earnings_impact_model.py`)
+
+**Backend (FastAPI)**
+- Generated all endpoint stubs and Pydantic request/response models in `backend/main.py`
+- Added structured logging via Python's `logging` module throughout the API
+- Debugged CORS middleware configuration and Cloud Run port binding
+
+**Frontend (Streamlit)**
+- Built Streamlit tab layout, Plotly chart configurations, and session state management in `frontend/app.py`
+- Implemented the live options chain with expiry date pickers, strike ordering, and re-fetch logic
+- Debugged expiry-based price mismatch and front-month re-fetch resetting bugs
+
+**Deployment & Infrastructure**
+- Wrote and optimized `Dockerfile` for both frontend and backend services
+- Configured `docker-compose.yml` for local development
+- Resolved Cloud Run deployment issues (`.gcloudignore`, environment variable injection, Streamlit secrets)
+
+### Particularly Helpful Interactions
+
+- **Debugging live options chain state resets**: The expiry selector was resetting to the front month on every Streamlit re-run. Claude identified that session state was being overwritten on each widget render and proposed the correct initialization guard.
+- **Cloud Run + yfinance incompatibility**: `earnings_dates` parsing failed silently on Cloud Run because `lxml` wasn't installed in the container. Claude identified the missing dependency and added it to `requirements.txt`.
+- **Strike ordering bug**: Options chain strikes were returning in inconsistent order depending on expiry. Claude traced the issue to unsorted yfinance output and added an explicit sort before returning the response.
+
+### Areas Requiring Manual Intervention
+
+- Model weight tuning and validating that LSTM training converged on real options data required hands-on iteration beyond what AI could fully automate.
+- Final decisions on which API endpoints to expose and how to structure the Streamlit tab layout were made by the developer.
+- Verifying that deployed Cloud Run behavior matched local Docker output required manual testing against live market data.
+- Visual frontend finetuning and stylistic changes.
+- Added the earnings impact slider and P/E, PEG, EPS fundamentals panel with dual earnings charts.
+- Implemented intuitive features based on knowledge of financial markets and how models are used in quantitative finance.
+
+### Lessons Learned
+
+- AI assistants are most effective when given specific, narrowly scoped tasks (e.g., "fix the session state reset on expiry change") rather than broad open-ended ones.
+- Generated code for financial models (Black-Scholes, Greeks) is generally reliable because the formulas are well-defined; generated code for stateful UI (Streamlit session state) required more review.
+- Iterating on deployment issues (Cloud Run, Streamlit Cloud secrets) with AI assistance significantly reduced debugging time compared to reading documentation cold.
 
 ---
 
@@ -209,10 +263,10 @@ streamlit, plotly
 
 | Phase | Dates | Status |
 |-------|-------|--------|
-| Data collection & EDA | Apr 27 – May 10 | In Progress |
-| Feature engineering | May 4 – May 11 | In Progress |
+| Data collection & EDA | Apr 27 – May 10 | Complete |
+| Feature engineering | May 4 – May 11 | Complete |
 | Black-Scholes baseline | May 4 – May 11 | Complete |
-| XGBoost + Earnings models | May 11 – May 25 | Planned |
-| LSTM model | May 18 – May 25 | Planned |
-| Model comparison | May 25 – June 1 | Planned |
-| Deployment & docs | May 25 – June 1 | Planned | 
+| XGBoost + Earnings models | May 11 – May 25 | Complete |
+| LSTM model | May 18 – May 25 | Complete |
+| Model comparison | May 25 – June 1 | Complete |
+| Deployment & docs | May 25 – June 1 | Complete |
